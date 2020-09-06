@@ -1,0 +1,717 @@
+---
+title: Mode of transport employees prefers to commute to their office analysis through
+  Machine learning
+output:
+  word_document: default
+
+---
+
+---
+Heading: Setting the working directory and loading necessary packages
+---
+```{r}
+setwd("D:/Study/Great Lakes/machine learning/group assignment")
+library(class)
+library(dplyr)
+library(mice)
+library(scales)
+library(superheat)
+library(corrplot)
+library(caret)
+library(caTools)
+library(usdm)
+library(nnet)
+library(ROSE)
+library(SmartEDA)
+library(tidyr)
+library(plyr)
+```
+
+```{r}
+data  = read.csv('Cars.csv', header = T, na.strings = NA)
+head(data)
+```
+
+## EDA
+
+Five point summary
+```{r}
+dim(data)  # 444 rows and 9 columns
+# target variable -> Transport
+str(data)
+# GEnder and transport factor data rest 6 columns are continuous data
+summary(data)
+# General eda basis mean mode max min.
+```
+Observation:
+1. There are 8 independent varaible and 1 target varaible i.e transport
+2. 2 categorical variable are there.
+3. We van observe there is 1 NA value present in the data.
+
+```{r}
+# NA search
+anyNA(data)
+# There is na in data
+sum(is.na(data))
+# 1 na
+# MBA column has na data.
+sapply(data, function(x) sum(is.na(x)))
+```
+Observation:
+1. There is 1 NA value and that is present in the MBA column.
+
+```{r}
+dat <- data %>%
+  mutate(
+    Engineer = factor(Engineer, levels = c(0,1), labels = c('NonEngineer','Engineer')),
+    MBA = factor(MBA, levels = c(0,1), labels = c('NonMBA', 'MBA')),
+    license = factor(license, levels = c(0,1), labels = c('NonDL', 'DL'))
+  )
+
+```
+
+Missing Value Imputation Using Mice
+```{r}
+# NA imputation using Mice
+
+init = mice(dat, maxit=0) 
+meth = init$method
+predM = init$predictorMatrix
+
+predM
+meth  # logreg
+imputed = mice(dat, method=meth, predictorMatrix=predM)
+
+imputed <- complete(imputed)
+
+sapply(imputed, function(x) sum(is.na(x)))
+```
+Correlation Plot
+```{r}
+data_numeric = imputed %>%
+  mutate ( Gender = as.numeric(Gender),
+           Engineer = as.numeric(Engineer),
+           MBA = as.numeric(MBA),
+           license = as.numeric(license),
+           Transport = as.numeric(Transport)
+           )
+M <- cor(data_numeric)
+corrplot(M, type="upper")
+```
+Observation:
+1. Age is highly correlated with salary and Work EXP
+2. Work exp and salary are also highly corelated.
+
+```{r}
+# Target value ratio
+prop.table(table(imputed$Transport))
+```
+
+Observation:
+1. 67% data is of Public transport and baised towards it.
+
+General Summary after imputation
+```{r}
+ExpData(data=imputed,type=1)
+```
+
+Univariate analysis
+```{r}
+# Desnity plot for numerical data (univariate)
+plot1 <- ExpNumViz(imputed,target=NULL,nlim=10,Page=c(2,2),sample=4)
+plot1[[1]]
+```
+
+```{r}
+# Frequency chart for categorical variable (univariate)
+ExpCTable(imputed,Target=NULL,margin=1,clim=10,nlim=3,round=2,bin=NULL,per=T)
+
+```
+
+```{r}
+# BArplot for categorical data
+plot2 <- ExpCatViz(imputed,target=NULL,col ="slateblue4",clim=10,margin=2,Page = c(2,2),sample=4)
+plot2[[1]]
+```
+```{r}
+# for numeric data
+ExpNumStat(imputed,by="GA",gp="Transport",Qnt=seq(0,1,0.1),MesofShape=2,Outlier=TRUE,round=2)
+
+# Box plot
+plot4 <- ExpNumViz(imputed,target="Transport",type=1,nlim=3,fname=NULL,col=c("darkgreen","springgreen3","springgreen1","springgreen2"),Page=c(2,2),sample=4)
+plot4[[1]]
+
+```
+# Corrplot for NUmeric adata
+```{r}
+# corrplot
+imputed %>%
+  #filter(Transport == "Car") %>%
+  select_if(is.numeric) %>%
+  cor() %>%
+  corrplot::corrplot()
+```
+
+Observation:
+1. Age, workexp and salary are highly corelated.
+
+```{r}
+# Density plot for numeric data
+imputed %>%
+  select_if(is.numeric) %>%                     
+  gather() %>%                            
+  ggplot(aes(value)) +                    
+  facet_wrap(~ key, scales = "free") +  
+  geom_density()    
+```
+```{r}
+# Histogram for numeric data
+imputed %>%
+  select_if(is.numeric) %>% 
+  gather() %>% 
+  ggplot(aes(value)) +
+  facet_wrap(~ key, scales = "free") +
+  geom_histogram()
+
+```
+```{r}
+# Categorical Univariate
+# Gender
+ggplot(imputed, aes(x = Gender)) + 
+  geom_bar(fill = "cornflowerblue", color="black") +
+  labs(x = "Gender", y = "Frequency",  title = "Gender frequency")
+```
+
+```{r}
+
+plotdata <- imputed %>%
+  count("MBA") %>%
+  mutate(pct =freq / sum(freq),
+         pctlabel = paste0(round(pct*100), "%"))
+# plot the bars as percentages, 
+# in decending order with bar labels
+ggplot(plotdata, 
+       aes(x = reorder(MBA, -pct),
+           y = pct)) + 
+  geom_bar(stat = "identity", 
+           fill = "indianred3", 
+           color = "black") +
+  geom_text(aes(label = pctlabel), 
+            vjust = -0.25) +
+  scale_y_continuous(labels = percent) +
+  labs(x = "MBA", 
+       y = "Percent", 
+       title  = "MBA %wise")
+# 75 % are Non Mba employess and 25 % are mba employees
+
+```
+License vs Transport
+```{r}
+plotdata <- imputed %>%  count(c("license", 'Transport')) %>%  mutate(pct =freq / sum(freq),pctlabel = paste0(round(pct*100), "%"))
+#plotdata
+# plot the bars as percentages, 
+# in decending order with bar labels
+ggplot(plotdata,  aes(x = reorder(Transport, -pct),y = pct)) + 
+  geom_bar(stat = "identity", fill = "indianred3", color = "black", position = 'stack') +
+  geom_text(aes(label = pctlabel), vjust = -0.25) +
+  scale_y_continuous(labels = percent) +labs(x = "Transport Type", y = "Percent", title  = "Transport %wise")
+```
+Salary Vs Transport
+```{r}
+ggplot(imputed, 
+       aes(x = Salary, 
+           fill = Transport)) +
+  geom_density(alpha = 0.4) +
+  labs(title = "Salary distribution by means of Transport")
+
+```
+Observation:
+# HIgh Salried prople use casr
+# 2 wheeler and public transport is mostly used by low income salary group
+
+```{r}
+# Transport vs Distance
+ggplot(imputed, 
+       aes(x = Distance, 
+           fill = Transport)) +
+  geom_density(alpha = 0.4) +
+  labs(title = "Distance travelled by means of Transport")
+
+```
+Observation:
+# Short distance is mostly uses public transport
+# For long distnce car is used by employees
+
+
+```{r}
+# Transport vs Age
+ggplot(imputed, aes(x = Transport,y = Age)) +
+  geom_boxplot(notch = TRUE, fill = "cornflowerblue", alpha = .7) +
+  labs(title = "Age distribution by Transport")
+# Younger age group uses 2 wheeler and employee aged above 30 mostly uses car.
+```
+
+```{r}
+# Transport vs License
+ggplot(imputed, 
+       aes(x = Transport, 
+           fill = license)) + 
+  geom_bar(position = "stack")
+# Non Driving license people are using the puiblic transport .
+# people with license are using Car
+# Most 2 wheeler user are not having Driving lIcense
+```
+Engineer Vs Transport
+```{r}
+ggplot(imputed, 
+       aes(x = Transport, 
+           fill = Engineer)) + 
+  geom_bar(position = position_dodge(preserve = "single"))
+```
+MBA vs Transport
+```{r}
+ggplot(imputed, 
+       aes(x = Transport, 
+           fill = MBA)) + 
+  geom_bar(position = position_dodge(preserve = "single")) #+
+  #geom_text(count)
+```
+Observation:
+1. There are more Non Mba persons in all three transport categories.
+
+Outlier Analysis
+```{r}
+imputed %>%
+  dplyr::select("Age","Work.Exp","Salary","Distance", "Transport") %>% 
+  tidyr::gather(Measure, value, -Transport) %>%                             # Convert to key-value pairs
+  ggplot(aes(x = Transport, y = value, color=Transport)) +                     # Plot the values
+  geom_boxplot(outlier.colour="red", outlier.shape=8,
+               outlier.size=4)+
+  facet_wrap(~ Measure, scales = "free")    # In separate panels
+      
+```
+
+Multicolinearity Check
+```{r}
+vif(data_numeric)
+```
+# Age Work Exp and salar have high multicolinearity. That was also evident by the corplot
+```{r}
+# Check for multicolinearity
+# One hot encoded data
+d2 <- data.frame(predict(dummyVars(~., imputed), imputed))
+str(d2)
+# 15 columns not one hot encoded
+
+pairs(d2, upper.panel = NULL)
+corrplot(cor(d2), type = 'lower')
+pcs <- prcomp(d2, center = T, scale. = T, tol = 0.8)
+print(pcs)
+
+```
+
+```{r}
+# PLot for Work exp and Salary wrt to transport
+library(ggpubr)
+
+b <- ggplot(data, aes(x = Salary, y = Work.Exp))
+b + geom_point(aes(color = Transport, shape = Transport))+
+  geom_smooth(aes(color = Transport, fill = Transport),
+              method = "lm", fullrange = TRUE) +
+  #facet_wrap(~Transport) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800", "#FC4E07"))+
+  scale_fill_manual(values = c("#00AFBB", "#E7B800", "#FC4E07")) +
+  theme_bw()
+
+# Change the ellipse type to 'convex'
+ggscatter(data, x = "Salary", y = "Work.Exp",
+          color = "Transport", palette = "npg",
+          shape = "Transport",
+          ellipse = TRUE, ellipse.type = "convex",
+          ggtheme = theme_minimal())+
+  facet_wrap(~Transport)
+
+# Bubble chart  ( Salary , Work Exp, Age and Transport)
+b + geom_point(aes(color = Transport, size = Age), alpha = 0.5) +
+  scale_color_manual(values = c("#00AFBB", "#E7B800", "#FC4E07")) +
+  scale_size(range = c(0.5, 12))  # Adjust the range of points size
+```
+Business Requirement as we understand is need to find out employees who would use car as a means of transport and factor s impacting in it.
+Observation:
+1. From the bubble we can understand that People with High exp prefer car as mode of transport.
+2. From the 1st chart we can see that work exp and salary . We can see that for car users slope is least which means.
+   With less work exp they are getting more salary which  enable them to have a car.
+
+
+Data Spliting and ploting
+```{r}
+# Data prepration as Train and Test
+split <- sample.split(imputed$Transport, SplitRatio = .75)
+
+cartrain <-  subset( imputed, split==T)
+cartest<- subset(imputed, split==F)
+dim(cartrain)  # 111 rows
+dim(cartest)   # 333 row
+prop.table(table(cartrain$Transport))
+prop.table(table(cartest$Transport))
+```
+
+```{r}
+#par(mfrow=c(1,2))
+plotdata1 <- cartrain %>%  count("Transport") %>%  mutate(pct =freq / sum(freq),pctlabel = paste0(round(pct*100), "%"))
+plotdata2 <- cartest %>%  count("Transport") %>%  mutate(pct =freq / sum(freq),pctlabel = paste0(round(pct*100), "%"))
+# plot the bars as percentages, 
+# in decending order with bar labels
+ggplot(plotdata1, aes(x = reorder(Transport, -pct),y = pct)) + 
+  geom_bar(stat = "identity", fill = "indianred3", color = "black") +
+  geom_text(aes(label = pctlabel), vjust = -0.25) +
+  scale_y_continuous(labels = percent) +labs(x = "Transport", y = "Percent", title  = "Transport distribution Train")
+```
+
+```{r}
+ggplot(plotdata2, aes(x = reorder(Transport, -pct),y = pct)) + 
+  geom_bar(stat = "identity", fill = "blue", color = "black") +
+  geom_text(aes(label = pctlabel), vjust = -0.25) +
+  scale_y_continuous(labels = percent) +labs(x = "Transport", y = "Percent", title  = "Transport distribution Test")
+#grid.arrange(plot1, plot2, ncol=2)
+# distribution is same for both test and train data
+```
+
+
+```{r}
+# Normalising the data
+normalize <- function(x) {
+  return ((x - min(x)) / (max(x) - min(x))) }
+cartest<- cartest %>%  mutate_if(is.numeric, normalize)
+cartrain<- cartrain %>% mutate_if(is.numeric, normalize)
+summary(cartest)
+summary(cartrain)
+```
+
+Naive Bayes
+
+1. The main limitation of Naive Bayes is the assumption of independent predictor features. Naive Bayes implicitly         assumes that all the attributes are mutually independent. In real life, it’s almost impossible that we get a set of    predictors that are completely independent or one another.
+2. If a categorical variable has a category in the test dataset, which was not observed in training dataset, then the     model will assign a 0 (zero) probability and will be unable to make a prediction. This is often known as Zero          Frequency. To solve this, we can use a smoothing technique. Details on additive smoothing or laplace smoothing can     be found here.
+3. Cannot incorporate feature interactions.
+4. For regression problems, i.e. continuous real-valued data, there may not be a good way to calculate likelihoods.       Binning the data and assigning discrete classes to the bins is sub-optimal since it throws away information.           Assuming each feature is normally distributed is workable, but could impact performance if features are not normally    distributed. On the other hand, with enough training data in each class, you could estimate the likelihood densities    directly, permitting accurate likelihood calculations for new data.
+5. Performance is sensitive to skewed data — that is, when the training data is not representative of the class           distributions in the overall population. In this case, the prior estimates will be incorrect.
+
+```{r}
+
+# So, multi collinearity does not affect the Naive Bayes
+# MOdel 1 Naive Bayes
+train_control <- trainControl(
+  method = "cv", 
+  number = 3   )
+search_grid <- expand.grid(
+  usekernel = c(TRUE, FALSE),
+  fL = 0:5,
+  adjust = seq(0, 5, by = 1)  )
+
+library(caret)
+
+nb.m1 <- caret::train(
+  Transport ~ ., data = cartrain,
+  method = "nb",
+  trControl = train_control,
+  tuneGrid = search_grid,
+  preProc = c("BoxCox", "center", "scale", "pca")
+)
+#warnings()
+# top 5 modesl
+nb.m1$results %>% 
+  top_n(5, wt = Accuracy) %>%
+  arrange(desc(Accuracy))
+
+# plot search grid results
+plot(nb.m1)
+
+confusionMatrix(nb.m1)  # train accuracy # 78.38
+# Test prediction
+data_pred <- predict(nb.m1,cartest[,-9],type="raw")
+confusionMatrix(data_pred,cartest[,9], positive = "a", mode="everything")  #  test accuracy 83.78
+###################################################################################################
+```
+
+KNN Algorithm
+```{r}
+source("Confusion matrix plot.r")
+set.seed(400)
+ctrl <- trainControl(method="repeatedcv",repeats = 3) #,classProbs=TRUE,summaryFunction = twoClassSummary)
+knnFit <- caret::train(Transport ~ ., data = cartrain, method = "knn", trControl = ctrl, preProcess = c("center","scale"), tuneLength = 20)
+data_pred <- predict(knnFit,cartest[,-9],type="raw")
+confusionMatrix(data_pred,cartest[,9], positive = "a", mode="everything")  # 78.38
+cfmROC(data_pred,cartest[,9])
+```
+
+```{r}
+ctrl <- trainControl(method="repeatedcv",repeats = 3,classProbs=FALSE,summaryFunction = multiClassSummary)
+knnFit <- caret::train(Transport ~ ., data = cartrain, method = "knn", trControl = ctrl, preProcess = c("center","scale"), tuneLength = 20)
+data_pred <- predict(knnFit,cartest[,-9],type="raw")
+confusionMatrix(data_pred,cartest[,9], positive = "a", mode="everything")  # 81.98
+cfmROC(data_pred,cartest[,9])
+```
+
+```{r}
+
+# with normalized data
+ctrl <- trainControl(method="repeatedcv",repeats = 3,classProbs=FALSE,summaryFunction = multiClassSummary)
+knnFit <- caret::train(Transport ~ ., data = cartrain, method = "knn", trControl = ctrl, preProcess = c("center","scale"), tuneLength = 20)
+data_pred <- predict(knnFit,cartest[,-9],type="raw")
+confusionMatrix(data_pred,cartest[,9], positive = "a", mode="everything")  # 84.68
+cfmROC(data_pred,cartest[,9])
+```
+
+Logistic Regression
+```{r}
+
+# Logistic Regression 1.1 without smote
+trControl <- trainControl(method  = "cv", number  = 10,verboseIter = FALSE,
+                          summaryFunction = multiClassSummary)
+#trControl$sampling<- 'smote'
+fit_glm = caret::train(
+  Transport ~ .,
+  data = cartrain,
+  method = "multinom",
+  trControl = trControl,
+  preProcess = c("center", "scale"),
+  trace = FALSE
+)
+data_pred <- predict(fit_glm,cartest[,-9],type="raw")
+confusionMatrix(data_pred,cartest[,9], positive = "a", mode="everything")  # 84.68 accuracy increased
+#plot 
+cfmROC(data_pred,cartest[,9])
+```
+
+```{r}
+# Logistic Regression 1.1 with smote
+trControl <- trainControl(method  = "cv", number  = 10,verboseIter = FALSE,
+                          summaryFunction = multiClassSummary)
+trControl$sampling<- 'smote'
+fit_glm = caret::train(
+  Transport ~ .,
+  data = cartrain,
+  method = "multinom",
+  trControl = trControl,
+  preProcess = c("center", "scale"),
+  trace = FALSE
+)
+fit_glm
+data_pred <- predict(fit_glm,cartest[,-9],type="raw")
+confusionMatrix(data_pred,cartest[,9], positive = "a", mode="everything")  # 85.59 accuracy decreasd
+#plot 
+cfmROC(data_pred,cartest[,9])
+
+```
+
+```{r}
+# Logistic Regression 1.2 without smote removing age
+trControl <- trainControl(method  = "cv", number  = 10,verboseIter = FALSE,
+                          summaryFunction = multiClassSummary)
+trControl$sampling<- 'smote'
+fit_glm = caret::train(
+  Transport ~ .-Age,
+  data = cartrain,
+  method = "multinom",
+  trControl = trControl,
+  preProcess = c("center", "scale"),
+  trace = FALSE
+)
+data_pred <- predict(fit_glm,cartest[,-9],type="raw")
+confusionMatrix(data_pred,cartest[,9], positive = "a", mode="everything")  # 81.98 accuracy decreasd
+#plot 
+cfmROC(data_pred,cartest[,9])
+
+```
+```{r}
+# Logistic Regression 1.2 without smote removing Work.exp
+trControl <- trainControl(method  = "cv", number  = 10,verboseIter = FALSE,
+                          summaryFunction = multiClassSummary)
+trControl$sampling<- 'smote'
+fit_glm = caret::train(
+  Transport ~ .-Work.Exp-Age,
+  data = cartrain,
+  method = "multinom",
+  trControl = trControl,
+  preProcess = c("center", "scale"),
+  trace = FALSE
+)
+data_pred <- predict(fit_glm,cartest[,-9],type="raw")
+confusionMatrix(data_pred,cartest[,9], positive = "a", mode="everything")  # 82.88 accuracy decreasd
+#plot 
+cfmROC(data_pred,cartest[,9])
+
+```
+BAgging
+```{r}
+#Bagging 1.1
+library(rpart)
+cntrl <- trainControl(method = "cv", number = 10)
+control = rpart.control(minsplit = 2, cp = 0)
+fit_bag<- caret::train(Transport ~ ., data = cartrain, method = "treebag",nbagg= 200, trControl = cntrl)
+pred<- fit_bag %>% predict(cartest[,-9])
+confusionMatrix(pred, cartest[,9]) # Accuracy % ovefitting
+confusionMatrix(fit_bag)  #81.08 on trin
+#plot 
+cfmROC(pred,cartest[,9])
+```
+
+```{r}
+# Bagging Random Forest 1.2
+# Tune using caret
+# Random Search
+control <- trainControl(method="repeatedcv", number=10, repeats=3, search="random")
+set.seed(7)
+mtry <- sqrt(ncol(cartrain))
+rf_random <- caret::train(Transport~., data=cartrain, method="rf", metric="Accuracy", tuneLength=15, trControl=control)
+print(rf_random)
+plot(rf_random)
+pred<- rf_random %>% predict(cartest[,-9])
+confusionMatrix(pred, cartest[,9]) # Accuracy 81.08% ovefitting
+confusionMatrix(rf_random)  #81.98 on train
+#plot 
+cfmROC(pred,cartest[,9])
+```
+
+```{r}
+# Bagging Random Forest 1.3
+# Tune using caret
+# Grid Search
+control <- trainControl(method="repeatedcv", number=10, repeats=3, search="grid")
+set.seed(7)
+tunegrid <- expand.grid(.mtry=c(1:15))
+rf_gridsearch <- caret::train(Transport~., data=cartrain, method="rf", metric="Accuracy",
+                              tuneGrid=tunegrid, trControl=control)
+print(rf_gridsearch)
+plot(rf_gridsearch)
+pred<- rf_random %>% predict(cartest[,-9])
+confusionMatrix(pred, cartest[,9]) # Accuracy 100% ovefitting
+confusionMatrix(rf_gridsearch)  #81.68 on train
+#plot 
+cfmROC(pred,cartest[,9])
+```
+
+```{r}
+# Boosting  1.1
+Control <- trainControl(  method = "repeatedcv",  number = 10, repeats = 3)
+set.seed(825)
+gbmFit1 <- caret::train(Transport ~ ., data = cartrain, 
+                 method = "gbm", 
+                 trControl = Control,
+                 verbose = FALSE)
+pred<- gbmFit1 %>% predict(cartest[,-9])
+confusionMatrix(pred, cartest[,9]) # Accuracy 91.89% 
+confusionMatrix(gbmFit1)  #81.08 on train
+summary(gbmFit1)
+gbmFit1$bestTune
+#n.trees interaction.depth shrinkage n.minobsinnode
+#4       50                2       0.1             10
+#plot 
+cfmROC(pred,cartest[,9])
+```
+
+```{r}
+
+# Boosting  1.2 Tuning
+Control <- trainControl(  method ="repeatedcv",  repeats = 5, summaryFunction = multiClassSummary)
+set.seed(825)
+metric <- "Accuracy"
+# modify hyperparameter grid
+gbmGrid <-  expand.grid(interaction.depth = c(1, 3, 6, 9), 
+                        n.trees = (40:50)*50, 
+                        shrinkage = seq(.0005, .05,.0005),
+                        n.minobsinnode = 10)
+# total number of combinations  
+nrow(gbmGrid)  # 90 parameters
+gbmFit2 <- caret::train(Transport ~ .
+                   , data=cartrain
+                   #, distribution="bernaulli"
+                   , method="gbm"
+                   , trControl=Control
+                   , verbose=FALSE
+                   , tuneGrid=gbmGrid
+                   , metric=metric
+                   , bag.fraction=0.75
+)   
+
+pred<- gbmFit2 %>% predict(cartest[,-9])
+confusionMatrix(pred, cartest[,9]) # Accuracy 90.99% 
+confusionMatrix(gbmFit2)  #80.18 on train
+#plot 
+cfmROC(pred,cartest[,9])
+```
+
+```{r}
+# Feature Explanainability
+library(gbm)
+par(mar = c(5, 8, 1, 1))
+summary(  gbmFit1, cBars = 10,  method = relative.influence,   las = 2)
+vip::vip(gbmFit1)
+
+# LOcal observation
+# get a few observations to perform local interpretation on
+local_obs <- cartest[1:2, ]
+local_obs
+install.packages('lime')
+library(lime)
+# apply LIME   For feature explainability
+explainer <- lime(cartrain, gbmFit1)
+explanation <- explain(local_obs, explainer, n_labels = 3, n_features = 5)
+plot_features(explanation)
+```
+
+
+```{r}
+# Xtreme Boosting  xgbtree 1.1
+library(xgboost)
+xgbtreefit <- caret::train( Transport ~ ., data = cartrain, method = "xgbTree", 
+                trControl = trainControl("cv", number = 10))
+pred<- xgbtreefit %>% predict(cartest[,-9])
+confusionMatrix(pred, cartest[,9])   # Accuraccy 89.19
+#plot 
+cfmROC(pred,cartest[,9])
+# apply LIME   For feature explainability
+explainer <- lime(cartrain,xgbtreefit )
+explanation <- explain(local_obs, explainer, n_labels = 3, n_features = 5)
+plot_features(explanation)
+
+```
+
+```{r}
+# Xtreme booting xgbtree 1.2 tuning
+
+# XGB with hyper parameter tuning
+nrounds <- 1000
+tune_grid <- expand.grid(
+  nrounds = seq(from = 200, to = nrounds, by = 50),
+  eta = c(0.025, 0.05, 0.1, 0.3),
+  max_depth = c(2, 3, 4, 5, 6),
+  gamma = 0,
+  colsample_bytree = 1,
+  min_child_weight = 1,
+  subsample = 1
+)
+
+tune_control <- caret::trainControl(
+  method = "cv", # cross-validation
+  number = 3, # with n folds 
+  #index = createFolds(tr_treated$Id_clean), # fix the folds
+  verboseIter = FALSE, # no training log
+  allowParallel = TRUE # FALSE for reproducible results 
+)
+
+xgbfit2 <- caret::train(
+  Transport ~ ., data = cartrain,
+  trControl = tune_control,
+  tuneGrid = tune_grid,
+  method = "xgbTree",
+  verbose = TRUE
+)
+
+pred<- xgbfit2 %>% predict(cartest[,-9])
+confusionMatrix(pred, cartest[,9])    # Accuracy 94.59
+#plot 
+cfmROC(pred,cartest[,9])
+
+```
+
